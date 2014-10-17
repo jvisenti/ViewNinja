@@ -204,6 +204,37 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     }
 }
 
+void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
+    NSMutableArray *bezierPoints = (__bridge NSMutableArray *)info;
+    
+    CGPoint *points = element->points;
+    CGPathElementType type = element->type;
+    
+    switch(type) {
+        case kCGPathElementMoveToPoint: // contains 1 point
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
+            break;
+            
+        case kCGPathElementAddLineToPoint: // contains 1 point
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
+            break;
+            
+        case kCGPathElementAddQuadCurveToPoint: // contains 2 points
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
+            break;
+            
+        case kCGPathElementAddCurveToPoint: // contains 3 points
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
+            [bezierPoints addObject:[NSValue valueWithCGPoint:points[2]]];
+            break;
+            
+        case kCGPathElementCloseSubpath: // contains no point
+            break;
+    }
+}
+
 #pragma mark - private methods
 
 - (void)_touchMoved:(UITouch *)touch
@@ -363,6 +394,38 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)_commitSlice
 {
+
+//    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
+//    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
+//
+//    UIBezierPath *yourPath = [[UIBezierPath alloc]init]; // Assume this has some points in it
+//    [yourPath moveToPoint:CGPointMake(minPoint.x, minPoint.y)];
+//    [yourPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
+//    [yourPath addLineToPoint:CGPointMake(maxPoint.x, maxPoint.y)];
+//    [yourPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
+//    [yourPath addLineToPoint:CGPointMake(minPoint.x, minPoint.y)];
+//    
+//    CGPathRef yourCGPath = yourPath.CGPath;
+//    NSMutableArray *bezierPoints = [NSMutableArray array];
+//    CGPathApply(yourCGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
+//    self.ninjaView.rootView.layer.mask = nil;
+//    
+//    NSInteger pathLength = bezierPoints.count;
+//    NSInteger currentPath;
+//    NSInteger overflowCounter = 0;
+//    
+//    CGPoint firstPoint = CGPointMake(0, 0);
+//    CGPoint lastPoint = CGPointMake(0, 0);
+//    
+//    while (!CGPointEqualToPoint(self.startPoint, self.endPoint)) {
+//        
+//    }
+//    
+//    
+//    
+//    
+//
+//    return;
     self.ninjaView.rootView.layer.mask = nil;
     
     UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
