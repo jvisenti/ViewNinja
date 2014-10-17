@@ -9,6 +9,11 @@
 #import "RZNinjaView.h"
 #import "RZNinjaWindow.h"
 
+typedef struct _RZNinjaLine {
+    CGPoint p0;
+    CGVector v;
+} RZNinjaLine;
+
 static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 #pragma mark - RZNinjaPane interface
@@ -167,7 +172,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
         if ( speed > kRZNinjaViewSliceThreshold ) {
             self.trackedTouch = touch;
             
-            self.startPoint = oldLoc;
+            self.startPoint = [self _boundsIntersectionOfLineFromPoint:oldLoc toPoint:touchLoc];
             self.endPoint = touchLoc;
         }
     }
@@ -180,7 +185,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 - (void)_touchEnded:(UITouch *)touch
 {
     if ( touch == self.trackedTouch ) {
-//        [self _updateEndpointWithPoint:[touch locationInView:self]];
+        self.endPoint = [self _boundsIntersectionOfLineFromPoint:self.endPoint toPoint:self.startPoint];
 //        [self _commitSlice];
         
         self.trackedTouch = nil;
@@ -190,6 +195,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
         [self setNeedsDisplay];
     }
 }
+
+// TODO: move to math header file
 
 - (void)_updateEndpointWithPoint:(CGPoint)point
 {
@@ -205,6 +212,59 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
         self.endPoint = CGPointMake(self.startPoint.x + scalar * curVec.dx, self.startPoint.y + scalar * curVec.dy);
     }
 }
+
+- (CGPoint)_boundsIntersectionOfLineFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
+{
+    CGVector vec = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
+    
+    RZNinjaLine sliceLine = {.p0 = p1, .v = vec};
+    
+    CGFloat maxX = CGRectGetMaxX(self.bounds);
+    CGFloat maxY = CGRectGetMaxY(self.bounds);
+    
+    //bounds lines
+    RZNinjaLine leftEdge = {.p0 = CGPointZero, .v = {.dx = 0.0f, .dy = 1.0f}};
+    RZNinjaLine rightEdge = {.p0 = {.x = maxX, .y = 0.0f}, .v = {.dx = 0.0f, .dy = 1.0f}};
+    RZNinjaLine topEdge = {.p0 = CGPointZero, .v = {.dx = 1.0f, .dy = 0.0f}};
+    RZNinjaLine bottomEdge = {.p0 = {.x = 0.0f, .y = maxY}, .v = {.dx = 1.0f, .dy = 0.0f}};
+    
+    CGFloat t = HUGE_VALF;
+    
+    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:leftEdge]);
+    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:rightEdge]);
+    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:topEdge]);
+    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:bottomEdge]);
+    
+    return CGPointMake(p1.x + t * vec.dx, p1.y + t * vec.dy);
+}
+
+- (CGFloat)_intersectionTimeOfLine:(RZNinjaLine)l1 withLine:(RZNinjaLine)l2
+{
+    CGVector norm1 = [self _vectorNormalize:l1.v];
+    CGVector norm2 = [self _vectorNormalize:l2.v];
+    
+    if ( fabsf(norm1.dx * norm2.dx + norm1.dy * norm2.dy) == 1.0f ) {
+        // parallel lines won't ever intersect
+        return HUGE_VALF;
+    }
+    
+    CGVector w = CGVectorMake(l1.p0.x - l2.p0.x, l1.p0.y - l2.p0.y);
+    CGFloat t = ((l2.v.dy * w.dx) - (l2.v.dx * w.dy)) / ((l2.v.dx * l1.v.dy) - (l2.v.dy * l1.v.dx));
+    
+    return t;
+}
+
+- (CGVector)_vectorNormalize:(CGVector)v
+{
+    if ( v.dx == 0.0f && v.dy == 0.0f ) {
+        return v;
+    }
+    
+    CGFloat magnitude = sqrtf(v.dx * v.dx + v.dy * v.dy);
+    return CGVectorMake(v.dx / magnitude, v.dy / magnitude);
+}
+
+// --- end TODO
 
 - (void)_commitSlice
 {
