@@ -69,8 +69,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     [super setBackgroundColor:[UIColor clearColor]];
     
-    [self insertSubview:self.rootView atIndex:0];
     [self addSubview:self.ninjaPane];
+    [self insertSubview:self.rootView atIndex:0];
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_windowWillSendTouches:) name:kRZWindowWillSendTouchesNotificaton object:nil];
 }
@@ -84,7 +84,12 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)addSubview:(UIView *)view
 {
-    [self.rootView addSubview:view];
+    if ( self.rootView.superview == self ) {
+        [self.rootView addSubview:view];
+    }
+    else {
+        [super addSubview:view];
+    }
 }
 
 - (void)insertSubview:(UIView *)view atIndex:(NSInteger)index
@@ -338,21 +343,27 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     self.ninjaView.rootView.layer.mask = nil;
     
-    UIBezierPath *slicePath = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
+    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
+    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
     
-    if (!slicePath) {
+    CGRect bounding1 = CGPathGetBoundingBox(path1.CGPath);
+    CGRect bounding2 = CGPathGetBoundingBox(path2.CGPath);
+    
+    CGFloat area1 = bounding1.size.width * bounding1.size.height;
+    CGFloat area2 = bounding2.size.width * bounding2.size.height;
+    
+    UIBezierPath *slicedPath = (area1 > area2) ? path2 : path1;
+    UIBezierPath *keepPath = (area1 > area2) ? path1 : path2;
+    
+    if (!keepPath) {
         return;
     }
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = self.ninjaView.bounds;
-    maskLayer.path = slicePath.CGPath;
+    maskLayer.path = keepPath.CGPath;
     
-    UIBezierPath *slicedPath = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
-    
-    if ( slicedPath != nil ) {
-        [self _configureSlicedSectionWithPath:slicedPath];
-    }
+    [self _configureSlicedSectionWithPath:slicedPath];
     
     self.ninjaView.rootView.layer.mask = maskLayer;
 }
@@ -366,10 +377,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     
     CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
     CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
-    
-    
-    NSLog(@"Start Point: %@", NSStringFromCGPoint(firstPoint));
-    NSLog(@"End Point: %@", NSStringFromCGPoint(lastPoint));
     
     [maskPath moveToPoint:firstPoint];
     int overflowCounter = 0;
@@ -441,7 +448,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     maskLayer.frame = slicedSection.bounds;
     maskLayer.path = path.CGPath;
     
-//    slicedSection.layer.mask = maskLayer;
+    slicedSection.layer.mask = maskLayer;
     
     [self addSubview:slicedSection];
     self.slicedSection = slicedSection;
