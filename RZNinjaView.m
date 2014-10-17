@@ -29,6 +29,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 @property (assign, nonatomic) CGPoint endPoint;
 
 @property (weak, nonatomic) CAShapeLayer * maskLayer;
+@property (strong, nonatomic) UIBezierPath *currentMask;
 
 - (void)touchOccurred:(UITouch *)touch;
 
@@ -194,6 +195,13 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     return self;
 }
 
+- (void)setNinjaView:(RZNinjaView *)ninjaView
+{
+    _ninjaView = ninjaView;
+
+    self.currentMask = [UIBezierPath bezierPathWithRect:ninjaView.bounds];
+}
+
 - (void)touchOccurred:(UITouch *)touch
 {
     if ( self.slicedSection != nil ) {
@@ -310,6 +318,27 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     CGFloat maxX = CGRectGetMaxX(self.bounds);
     CGFloat maxY = CGRectGetMaxY(self.bounds);
     
+    NSMutableArray *bezierPoints = [NSMutableArray array];
+    CGPathApply(self.currentMask.CGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
+    
+    NSMutableDictionary *intersectionDistances = [NSMutableDictionary dictionary];
+    
+    for (NSUInteger i = 0; i < [bezierPoints count]; i++) {
+        CGPoint s0 = [bezierPoints[i] CGPointValue];
+        CGPoint s1 = [bezierPoints[(i+1) % [bezierPoints count]] CGPointValue];
+        
+        CGPoint intersection = [self _intersectionOfLine:sliceLine withSegmentFromPoint:s0 toPoint:s1];
+        
+        if ( intersection.x != HUGE_VALF && intersection.y != HUGE_VALF ) {
+            CGFloat dist = [self _lengthOfSegmentFromPoint:p1 toPoint:intersection];
+            [intersectionDistances setObject:[NSValue valueWithCGPoint:intersection] forKey:@(dist)];
+        }
+    }
+    
+    NSArray *sortedKeys = [[intersectionDistances allKeys] sortedArrayUsingSelector:@selector(compare:)];
+    
+    return [[intersectionDistances objectForKey:[sortedKeys firstObject]] CGPointValue];
+    
     //bounds lines
     RZNinjaLine leftEdge = {.p0 = CGPointZero, .v = {.dx = 0.0f, .dy = 1.0f}};
     RZNinjaLine rightEdge = {.p0 = {.x = maxX, .y = 0.0f}, .v = {.dx = 0.0f, .dy = 1.0f}};
@@ -370,14 +399,13 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     
     CGPoint intersection = [self _intersectionOfLine:l1 withLine:lineFromSegment];
     
-    CGFloat segmentVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:p2];
-    CGFloat intersectionVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:intersection];
+    CGPoint p = CGPointMake(intersection.x - p1.x, intersection.y - p1.y);
+    CGFloat t = (p.x + p.y) / (lineFromSegment.v.dx + lineFromSegment.v.dy);
     
-    CGFloat proportion = intersectionVectorLength / segmentVectorLength;
-    if (proportion >= 0 && proportion <= 1) {
+    if (t >= 0 && t <= 1) {
         return intersection;
     }
-        return CGPointMake(HUGE_VALF, HUGE_VALF);
+    return CGPointMake(HUGE_VALF, HUGE_VALF);
 }
 
 - (CGFloat)_lengthOfSegmentFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
@@ -462,6 +490,8 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     [self _configureSlicedSectionWithPath:slicedPath];
     
     self.ninjaView.rootView.layer.mask = maskLayer;
+    
+    self.currentMask = keepPath;
 }
 
 -(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
