@@ -21,6 +21,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 @interface RZNinjaPane : UIView
 
 @property (weak, nonatomic) RZNinjaView *ninjaView;
+@property (weak, nonatomic) UIView *slicedSection;
 
 @property (weak, nonatomic) UITouch *trackedTouch;
 
@@ -35,6 +36,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 @interface RZNinjaView () <UIGestureRecognizerDelegate>
 
+@property (strong, nonatomic) UIView *rootView;
 @property (strong, nonatomic) RZNinjaPane *ninjaPane;
 
 @end
@@ -87,6 +89,10 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)insertSubview:(UIView *)view atIndex:(NSInteger)index
 {
+    if ( self.rootView.superview == self ) {
+        index = MAX(index, 1);
+    }
+    
     if ( self.ninjaPane.superview == self ) {
         index = MIN(index, [self.subviews indexOfObject:self.ninjaPane]);
     }
@@ -95,6 +101,18 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 }
 
 #pragma mark - private methods
+
+- (UIView *)rootView
+{
+    if ( _rootView == nil ) {
+        _rootView = [[UIView alloc] initWithFrame:self.bounds];
+        _rootView.backgroundColor = [UIColor clearColor];
+        _rootView.opaque = NO;
+        _rootView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+        [_rootView setTranslatesAutoresizingMaskIntoConstraints:YES];
+    }
+    return _rootView;
+}
 
 - (RZNinjaPane *)ninjaPane
 {
@@ -129,7 +147,13 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
-    return nil;
+    UIView *hitView = nil;
+    
+    if ( [self.slicedSection pointInside:point withEvent:event] ) {
+        hitView = self.slicedSection;
+    }
+    
+    return hitView;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -189,8 +213,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 //        [self _commitSlice];
         
         self.trackedTouch = nil;
-//        self.startPoint = CGPointZero;
-//        self.endPoint = CGPointZero;
+        self.startPoint = CGPointZero;
+        self.endPoint = CGPointZero;
         
         [self setNeedsDisplay];
     }
@@ -228,30 +252,63 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     RZNinjaLine topEdge = {.p0 = CGPointZero, .v = {.dx = 1.0f, .dy = 0.0f}};
     RZNinjaLine bottomEdge = {.p0 = {.x = 0.0f, .y = maxY}, .v = {.dx = 1.0f, .dy = 0.0f}};
     
-    CGFloat t = HUGE_VALF;
     
-    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:leftEdge]);
-    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:rightEdge]);
-    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:topEdge]);
-    t = MIN(t, [self _intersectionTimeOfLine:sliceLine withLine:bottomEdge]);
+    CGPoint leftInt = [self _intersectionOfLine:sliceLine withLine:leftEdge];
+    CGPoint rightInt = [self _intersectionOfLine:sliceLine withLine:rightEdge];
+    CGPoint topInt = [self _intersectionOfLine:sliceLine withLine:topEdge];
+    CGPoint bottomInt = [self _intersectionOfLine:sliceLine withLine:bottomEdge];
     
-    return CGPointMake(p1.x + t * vec.dx, p1.y + t * vec.dy);
+    CGFloat minLen = HUGE_VALF;
+    
+    CGFloat leftDist = [self _lengthOfSegmentFromPoint:p1 toPoint:leftInt];
+    CGFloat rightDist = [self _lengthOfSegmentFromPoint:p1 toPoint:rightInt];
+    CGFloat topDist = [self _lengthOfSegmentFromPoint:p1 toPoint:topInt];
+    CGFloat bottomDist = [self _lengthOfSegmentFromPoint:p1 toPoint:bottomInt];
+    
+    minLen = MIN(minLen, leftDist);
+    minLen = MIN(minLen, rightDist);
+    minLen = MIN(minLen, topDist);
+    minLen = MIN(minLen, bottomDist);
+    
+    if ( minLen == leftDist ) {
+        return leftInt;
+    }
+    else if ( minLen == rightDist ) {
+        return rightInt;
+    }
+    else if ( minLen == topDist ) {
+        return topInt;
+    }
+    else {
+        return bottomInt;
+    }
 }
 
-- (CGFloat)_intersectionTimeOfLine:(RZNinjaLine)l1 withLine:(RZNinjaLine)l2
+- (CGPoint)_intersectionOfLine:(RZNinjaLine)l1 withLine:(RZNinjaLine)l2
 {
     CGVector norm1 = [self _vectorNormalize:l1.v];
     CGVector norm2 = [self _vectorNormalize:l2.v];
     
     if ( fabsf(norm1.dx * norm2.dx + norm1.dy * norm2.dy) == 1.0f ) {
         // parallel lines won't ever intersect
-        return HUGE_VALF;
+        return CGPointMake(HUGE_VALF, HUGE_VALF);
     }
     
     CGVector w = CGVectorMake(l1.p0.x - l2.p0.x, l1.p0.y - l2.p0.y);
     CGFloat t = ((l2.v.dy * w.dx) - (l2.v.dx * w.dy)) / ((l2.v.dx * l1.v.dy) - (l2.v.dy * l1.v.dx));
     
-    return t;
+    return CGPointMake(l1.p0.x + t * l1.v.dx, l1.p0.y + t * l1.v.dy);
+}
+
+- (CGFloat)_lengthOfSegmentFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
+{
+    CGVector v = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
+    return [self _magnitude:v];
+}
+
+- (CGFloat)_magnitude:(CGVector)v
+{
+    return sqrtf(v.dx * v.dx + v.dy * v.dy);
 }
 
 - (CGVector)_vectorNormalize:(CGVector)v
@@ -260,7 +317,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
         return v;
     }
     
-    CGFloat magnitude = sqrtf(v.dx * v.dx + v.dy * v.dy);
+    CGFloat magnitude = [self _magnitude:v];
     return CGVectorMake(v.dx / magnitude, v.dy / magnitude);
 }
 
@@ -288,7 +345,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMinY(self.bounds))];
     [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), lastPoint.y)];
     
-    [maskPath applyTransform:CGAffineTransformMakeScale(1.0f, -1.0f)];
+//    [maskPath applyTransform:CGAffineTransformMakeScale(1.0f, -1.0f)];
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = self.ninjaView.bounds;
@@ -296,6 +353,19 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     
     self.ninjaView.layer.mask = maskLayer;
     self.ninjaView.clipsToBounds = YES;
+}
+
+- (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
+{
+    UIView *slicedSection = [self.ninjaView snapshotViewAfterScreenUpdates:YES];
+    slicedSection.userInteractionEnabled = YES;
+    slicedSection.clipsToBounds = YES;
+    
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    maskLayer.frame = slicedSection.bounds;
+    maskLayer.path = path.CGPath;
+    
+    [self addSubview:slicedSection];
 }
 
 - (void)drawRect:(CGRect)rect
