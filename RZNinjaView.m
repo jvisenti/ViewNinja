@@ -28,6 +28,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 @property (assign, nonatomic) CGPoint startPoint;
 @property (assign, nonatomic) CGPoint endPoint;
 
+@property (weak, nonatomic) CAShapeLayer * maskLayer;
+
 - (void)touchOccurred:(UITouch *)touch;
 
 @end
@@ -160,7 +162,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     if ( (self = [super initWithFrame:frame]) ) {
         self.backgroundColor = [UIColor clearColor];
-        self.opaque = NO;        
+        self.opaque = NO;
     }
     return self;
 }
@@ -210,11 +212,11 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     if ( touch == self.trackedTouch ) {
         self.endPoint = [self _boundsIntersectionOfLineFromPoint:self.endPoint toPoint:self.startPoint];
-//        [self _commitSlice];
+        [self _commitSlice];
         
         self.trackedTouch = nil;
-        self.startPoint = CGPointZero;
-        self.endPoint = CGPointZero;
+//        self.startPoint = CGPointZero;
+//        self.endPoint = CGPointZero;
         
         [self setNeedsDisplay];
     }
@@ -325,34 +327,82 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)_commitSlice
 {
-    UIBezierPath *maskPath = [UIBezierPath bezierPath];
     
-    CGPoint firstPoint, lastPoint;
-    
-    if ( self.startPoint.x < self.endPoint.x ) {
-        firstPoint = self.startPoint;
-        lastPoint = self.endPoint;
+    UIBezierPath * maskPath = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
+    if (!maskPath) {
+        return;
     }
-    else {
-        firstPoint = self.endPoint;
-        lastPoint = self.startPoint;
-    }
-    
-    [maskPath moveToPoint:firstPoint];
-    
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMinX(self.bounds), firstPoint.y)];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds))];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMinY(self.bounds))];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), lastPoint.y)];
-    
-//    [maskPath applyTransform:CGAffineTransformMakeScale(1.0f, -1.0f)];
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = self.ninjaView.bounds;
     maskLayer.path = maskPath.CGPath;
-    
+
     self.ninjaView.layer.mask = maskLayer;
     self.ninjaView.clipsToBounds = YES;
+}
+
+-(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
+    
+    if (CGPointEqualToPoint(self.startPoint, self.endPoint)) {
+        return nil;
+    }
+    UIBezierPath *maskPath = [UIBezierPath bezierPath];
+    
+    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
+    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
+    
+    
+    NSLog(@"Start Point: %@", NSStringFromCGPoint(firstPoint));
+    NSLog(@"End Point: %@", NSStringFromCGPoint(lastPoint));
+    
+    [maskPath moveToPoint:firstPoint];
+    int overflowCounter = 0;
+    
+    while (!CGPointEqualToPoint(firstPoint, lastPoint)) {
+        NSLog(@"Current Point: %@", NSStringFromCGPoint(firstPoint));
+        if (round(firstPoint.x) == maxPoint.x && (round(firstPoint.y) != maxPoint.y)) {
+            if (round(lastPoint.x) != round(firstPoint.x)){
+                [maskPath addLineToPoint: maxPoint];
+                firstPoint = maxPoint;
+            }
+            else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else if (round(firstPoint.y) == maxPoint.y && round(firstPoint.x) != minPoint.x){
+            if (round(lastPoint.y) != round(firstPoint.y)) {
+                [maskPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
+                firstPoint = CGPointMake(minPoint.x, maxPoint.y);
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else if (round(firstPoint.x) == minPoint.x && ( round(firstPoint.y) != minPoint.y)){
+            if (round(lastPoint.x) != round(firstPoint.x)) {
+                [maskPath addLineToPoint:minPoint];
+                firstPoint = minPoint;
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else {
+            if (round(lastPoint.y) != round(firstPoint.y)) {
+                [maskPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
+                firstPoint = CGPointMake(maxPoint.x, minPoint.y);
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        }
+        overflowCounter ++;
+        if (overflowCounter > 5){
+            NSLog(@"OVERFLOWING!");
+            break;
+        }
+    }
+    [maskPath closePath];
+    return maskPath;
+    
 }
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
@@ -384,3 +434,4 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 }
 
 @end
+
