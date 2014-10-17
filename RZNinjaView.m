@@ -65,6 +65,10 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)_commonInit
 {
+    [super setBackgroundColor:[UIColor clearColor]];
+    self.opaque = NO;
+    
+    [self insertSubview:self.rootView atIndex:0];
     [self addSubview:self.ninjaPane];
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_windowWillSendTouches:) name:kRZWindowWillSendTouchesNotificaton object:nil];
@@ -79,25 +83,31 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)addSubview:(UIView *)view
 {
-    if ( self.ninjaPane.superview == self ) {
-        [super insertSubview:view belowSubview:self.ninjaPane];
-    }
-    else {
-        [super addSubview:view];
-    }
+    [self.rootView addSubview:view];
 }
 
 - (void)insertSubview:(UIView *)view atIndex:(NSInteger)index
 {
     if ( self.rootView.superview == self ) {
-        index = MAX(index, 1);
+        [self.rootView insertSubview:view atIndex:index];
     }
-    
-    if ( self.ninjaPane.superview == self ) {
-        index = MIN(index, [self.subviews indexOfObject:self.ninjaPane]);
+    else {
+        if ( self.ninjaPane.superview == self ) {
+            index = MIN(index, [self.subviews indexOfObject:self.ninjaPane]);
+        }
+        
+        [super insertSubview:view atIndex:index];
     }
-    
-    [super insertSubview:view atIndex:index];
+}
+
+- (void)setBackgroundColor:(UIColor *)backgroundColor
+{
+    self.rootView.backgroundColor = backgroundColor;
+}
+
+- (UIColor *)backgroundColor
+{
+    return self.rootView.backgroundColor;
 }
 
 #pragma mark - private methods
@@ -210,7 +220,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     if ( touch == self.trackedTouch ) {
         self.endPoint = [self _boundsIntersectionOfLineFromPoint:self.endPoint toPoint:self.startPoint];
-//        [self _commitSlice];
+        [self _commitSlice];
         
         self.trackedTouch = nil;
         self.startPoint = CGPointZero;
@@ -345,19 +355,21 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMinY(self.bounds))];
     [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), lastPoint.y)];
     
+    [maskPath closePath];
+    
 //    [maskPath applyTransform:CGAffineTransformMakeScale(1.0f, -1.0f)];
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = self.ninjaView.bounds;
     maskLayer.path = maskPath.CGPath;
     
-    self.ninjaView.layer.mask = maskLayer;
-    self.ninjaView.clipsToBounds = YES;
+    self.ninjaView.rootView.layer.mask = maskLayer;
 }
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
 {
     UIView *slicedSection = [self.ninjaView snapshotViewAfterScreenUpdates:YES];
+    slicedSection.frame = self.bounds;
     slicedSection.userInteractionEnabled = YES;
     slicedSection.clipsToBounds = YES;
     
