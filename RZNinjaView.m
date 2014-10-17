@@ -28,6 +28,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 @property (assign, nonatomic) CGPoint startPoint;
 @property (assign, nonatomic) CGPoint endPoint;
 
+@property (weak, nonatomic) CAShapeLayer * maskLayer;
+
 - (void)touchOccurred:(UITouch *)touch;
 
 @end
@@ -66,7 +68,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 - (void)_commonInit
 {
     [super setBackgroundColor:[UIColor clearColor]];
-    self.opaque = NO;
     
     [self insertSubview:self.rootView atIndex:0];
     [self addSubview:self.ninjaPane];
@@ -159,9 +160,9 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     UIView *hitView = nil;
     
-    if ( [self.slicedSection pointInside:point withEvent:event] ) {
-        hitView = self.slicedSection;
-    }
+//    if ( [self.slicedSection pointInside:point withEvent:event] ) {
+//        hitView = self.slicedSection;
+//    }
     
     return hitView;
 }
@@ -170,7 +171,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     if ( (self = [super initWithFrame:frame]) ) {
         self.backgroundColor = [UIColor clearColor];
-        self.opaque = NO;        
+        self.opaque = NO;
     }
     return self;
 }
@@ -335,49 +336,115 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)_commitSlice
 {
-    UIBezierPath *maskPath = [UIBezierPath bezierPath];
+    self.ninjaView.rootView.layer.mask = nil;
     
-    CGPoint firstPoint, lastPoint;
+    UIBezierPath *slicePath = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
     
-    if ( self.startPoint.x < self.endPoint.x ) {
-        firstPoint = self.startPoint;
-        lastPoint = self.endPoint;
+    if (!slicePath) {
+        return;
     }
-    else {
-        firstPoint = self.endPoint;
-        lastPoint = self.startPoint;
-    }
-    
-    [maskPath moveToPoint:firstPoint];
-    
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMinX(self.bounds), firstPoint.y)];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds))];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMinY(self.bounds))];
-    [maskPath addLineToPoint:CGPointMake(CGRectGetMaxX(self.bounds), lastPoint.y)];
-    
-    [maskPath closePath];
-    
-//    [maskPath applyTransform:CGAffineTransformMakeScale(1.0f, -1.0f)];
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = self.ninjaView.bounds;
-    maskLayer.path = maskPath.CGPath;
+    maskLayer.path = slicePath.CGPath;
+    
+    UIBezierPath *slicedPath = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
+    
+    if ( slicedPath != nil ) {
+        [self _configureSlicedSectionWithPath:slicedPath];
+    }
     
     self.ninjaView.rootView.layer.mask = maskLayer;
 }
 
+-(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
+    
+    if (CGPointEqualToPoint(self.startPoint, self.endPoint)) {
+        return nil;
+    }
+    UIBezierPath *maskPath = [UIBezierPath bezierPath];
+    
+    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
+    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
+    
+    
+    NSLog(@"Start Point: %@", NSStringFromCGPoint(firstPoint));
+    NSLog(@"End Point: %@", NSStringFromCGPoint(lastPoint));
+    
+    [maskPath moveToPoint:firstPoint];
+    int overflowCounter = 0;
+    
+    while (!CGPointEqualToPoint(firstPoint, lastPoint)) {
+        NSLog(@"Current Point: %@", NSStringFromCGPoint(firstPoint));
+        if (round(firstPoint.x) == maxPoint.x && (round(firstPoint.y) != maxPoint.y)) {
+            if (round(lastPoint.x) != round(firstPoint.x)){
+                [maskPath addLineToPoint: maxPoint];
+                firstPoint = maxPoint;
+            }
+            else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else if (round(firstPoint.y) == maxPoint.y && round(firstPoint.x) != minPoint.x){
+            if (round(lastPoint.y) != round(firstPoint.y)) {
+                [maskPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
+                firstPoint = CGPointMake(minPoint.x, maxPoint.y);
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else if (round(firstPoint.x) == minPoint.x && ( round(firstPoint.y) != minPoint.y)){
+            if (round(lastPoint.x) != round(firstPoint.x)) {
+                [maskPath addLineToPoint:minPoint];
+                firstPoint = minPoint;
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        } else {
+            if (round(lastPoint.y) != round(firstPoint.y)) {
+                [maskPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
+                firstPoint = CGPointMake(maxPoint.x, minPoint.y);
+            } else {
+                [maskPath addLineToPoint:lastPoint];
+                break;
+            }
+        }
+        overflowCounter ++;
+        if (overflowCounter > 5){
+            NSLog(@"OVERFLOWING!");
+            break;
+        }
+    }
+    [maskPath closePath];
+    return maskPath;
+    
+}
+
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
 {
-    UIView *slicedSection = [self.ninjaView snapshotViewAfterScreenUpdates:YES];
-    slicedSection.frame = self.bounds;
+    [self.slicedSection removeFromSuperview];
+    
+    UIView *view = self.ninjaView.rootView;
+    UIGraphicsBeginImageContextWithOptions(view.bounds.size, view.isOpaque, 0.0f);
+    
+    [view.layer renderInContext:UIGraphicsGetCurrentContext()];
+    
+    UIImage *snapshot = UIGraphicsGetImageFromCurrentImageContext();
+    
+    UIGraphicsEndImageContext();
+
+    UIImageView *slicedSection = [[UIImageView alloc] initWithImage:snapshot];
     slicedSection.userInteractionEnabled = YES;
-    slicedSection.clipsToBounds = YES;
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = slicedSection.bounds;
     maskLayer.path = path.CGPath;
     
+//    slicedSection.layer.mask = maskLayer;
+    
     [self addSubview:slicedSection];
+    self.slicedSection = slicedSection;
 }
 
 - (void)drawRect:(CGRect)rect
@@ -396,3 +463,4 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 }
 
 @end
+
