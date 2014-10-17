@@ -401,11 +401,24 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     return CGVectorMake(v.dx / magnitude, v.dy / magnitude);
 }
 
+-(BOOL) _pointOnSegmentFromPoint:(CGPoint) p1 toPoint:(CGPoint)p2 withPoint:(CGPoint) testPoint{
+    CGVector v = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
+    CGVector vTest = CGVectorMake(testPoint.x - p1.x, testPoint.y - p1.y);
+    CGVector normalV = [self _vectorNormalize:v];
+    CGVector normalVtest = [self _vectorNormalize:vTest];
+    
+    CGFloat dotProduct = normalV.dx * normalVtest.dx + normalV.dy * normalVtest.dy;
+    return dotProduct == 1;
+}
+
 // --- end TODO
 
 - (void)_commitSlice
 {
 
+    // This is an example of how to use _closeWisePathFromPoint insidePath
+    // It requires debuggin. OBVIOYSLY!
+    
 //    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
 //    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
 //
@@ -415,29 +428,11 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
 //    [yourPath addLineToPoint:CGPointMake(maxPoint.x, maxPoint.y)];
 //    [yourPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
 //    [yourPath addLineToPoint:CGPointMake(minPoint.x, minPoint.y)];
-//    
-//    CGPathRef yourCGPath = yourPath.CGPath;
-//    NSMutableArray *bezierPoints = [NSMutableArray array];
-//    CGPathApply(yourCGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
-//    self.ninjaView.rootView.layer.mask = nil;
-//    
-//    NSInteger pathLength = bezierPoints.count;
-//    NSInteger currentPath;
-//    NSInteger overflowCounter = 0;
-//    
-//    CGPoint firstPoint = CGPointMake(0, 0);
-//    CGPoint lastPoint = CGPointMake(0, 0);
-//    
-//    while (!CGPointEqualToPoint(self.startPoint, self.endPoint)) {
-//        
-//    }
-//    
-//    
-//    
-//    
-//
-//    return;
+    
     self.ninjaView.rootView.layer.mask = nil;
+    
+//    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint insidePath:yourPath];
+//    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint insidePath:yourPath];
     
     UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
     UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
@@ -462,6 +457,63 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     [self _configureSlicedSectionWithPath:slicedPath];
     
     self.ninjaView.rootView.layer.mask = maskLayer;
+}
+-(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint insidePath:(UIBezierPath*) path{
+
+    CGPathRef yourCGPath = path.CGPath;
+    NSMutableArray *bezierPoints = [NSMutableArray array];
+    CGPathApply(yourCGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
+    self.ninjaView.rootView.layer.mask = nil;
+    
+    NSInteger pathLength = bezierPoints.count;
+    NSInteger currentPath = -1;
+    NSInteger lastPointPath = -1;
+    NSInteger overflowCounter = pathLength;
+    
+    for (NSInteger i = 0 ; i < pathLength; i++) {
+        
+        NSInteger nextIndex = (i == bezierPoints.count - 1)? 0: i + 1;
+        CGPoint nextPoint = ((NSValue *)bezierPoints[nextIndex]).CGPointValue;
+        CGPoint currPoint = ((NSValue *)bezierPoints[i]).CGPointValue;
+        NSLog(@"%@", NSStringFromCGPoint(nextPoint));
+        NSLog(@"%@", NSStringFromCGPoint(currPoint));
+        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:firstPoint]) {
+            currentPath = nextIndex;
+        }
+        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:lastPoint]) {
+            lastPointPath = i;
+        }
+        if (currentPath != -1 && lastPointPath != -1) {
+            break;
+        }
+    }
+    
+    if (currentPath == -1) {
+        [NSException raise:@"Point and path not match" format:@"Start point not found inside path"];
+    }
+    
+    UIBezierPath *maskPath = [UIBezierPath bezierPath];
+    [maskPath moveToPoint:firstPoint];
+    
+    while (true) {
+        if (currentPath == lastPointPath) {
+            [maskPath addLineToPoint: lastPoint];
+            break;
+        } else {
+            [maskPath addLineToPoint:((NSValue *)bezierPoints[currentPath]).CGPointValue];
+        }
+        if (currentPath == pathLength - 1) {
+            currentPath = 0;
+        } else
+            currentPath++;
+        overflowCounter --;
+        if (overflowCounter < -1) {
+            NSLog(@"OVREFLOWWWING");
+            break;
+        }
+    }
+    return maskPath;
+
 }
 
 -(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
