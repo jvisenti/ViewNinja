@@ -69,8 +69,16 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     [super setBackgroundColor:[UIColor clearColor]];
     
-    [self addSubview:self.ninjaPane];
     [self insertSubview:self.rootView atIndex:0];
+    
+    // TODO: what about auto layout?
+    [[super subviews] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+        if ( obj != self.rootView ) {
+            [self.rootView addSubview:obj];
+        }
+    }];
+    
+    [super addSubview:self.ninjaPane];
     
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(_windowWillSendTouches:) name:kRZWindowWillSendTouchesNotificaton object:nil];
 }
@@ -104,6 +112,11 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
         
         [super insertSubview:view atIndex:index];
     }
+}
+
+- (NSArray *)subviews
+{
+    return self.rootView.subviews;
 }
 
 - (void)setBackgroundColor:(UIColor *)backgroundColor
@@ -165,9 +178,9 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 {
     UIView *hitView = nil;
     
-//    if ( [self.slicedSection pointInside:point withEvent:event] ) {
-//        hitView = self.slicedSection;
-//    }
+    if ( [self.slicedSection pointInside:point withEvent:event] ) {
+        hitView = self.slicedSection;
+    }
     
     return hitView;
 }
@@ -183,6 +196,10 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)touchOccurred:(UITouch *)touch
 {
+    if ( self.slicedSection != nil ) {
+        return;
+    }
+    
     BOOL inside = [self pointInside:[touch locationInView:self] withEvent:nil];
     
     if ( touch == self.trackedTouch && !inside ) {
@@ -346,8 +363,8 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
     UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
     
-    CGRect bounding1 = CGPathGetBoundingBox(path1.CGPath);
-    CGRect bounding2 = CGPathGetBoundingBox(path2.CGPath);
+    CGRect bounding1 = [path1 bounds];
+    CGRect bounding2 = [path2 bounds];
     
     CGFloat area1 = bounding1.size.width * bounding1.size.height;
     CGFloat area2 = bounding2.size.width * bounding2.size.height;
@@ -425,7 +442,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     }
     [maskPath closePath];
     return maskPath;
-    
 }
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
@@ -452,6 +468,26 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     
     [self addSubview:slicedSection];
     self.slicedSection = slicedSection;
+    
+    CGRect sliceBounds = [path bounds];
+    CGFloat midX = CGRectGetMidX(sliceBounds);
+    CGFloat midY = CGRectGetMidY(sliceBounds);
+    
+    CGVector vec = [self _vectorNormalize:CGVectorMake(midX - CGRectGetMidX(self.bounds), midY - CGRectGetMidY(self.bounds))];
+    
+    CGPoint target = CGPointMake(CGRectGetWidth(sliceBounds) * vec.dx, CGRectGetHeight(sliceBounds) * vec.dy);
+    
+    [UIView animateWithDuration:1.5f animations:^{
+        CGRect slicedFrame = self.slicedSection.frame;
+        slicedFrame.origin = target;
+        self.slicedSection.frame = slicedFrame;
+    }];
+    
+    [UIView animateWithDuration:1.0f delay:0.5f options:UIViewAnimationOptionCurveEaseIn animations:^{
+        self.slicedSection.alpha = 0.0f;
+    } completion:^(BOOL finished) {
+        [self.slicedSection removeFromSuperview];
+    }];
 }
 
 - (void)drawRect:(CGRect)rect
