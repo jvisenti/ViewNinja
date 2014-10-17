@@ -183,6 +183,12 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (void)touchOccurred:(UITouch *)touch
 {
+//    RZNinjaLine line = {.p0 = CGPointZero, .v = CGVectorMake(10, 0)};
+//    CGPoint p = [self _intersectionOfLine:line withSegmentFromPoint:CGPointMake(1, 3) toPoint:CGPointMake(1, -3)];
+//    NSLog(@"%@", NSStringFromCGPoint(p));
+//    CGPoint e = [self _intersectionOfLine:line withSegmentFromPoint:CGPointMake(1, -1) toPoint:CGPointMake(1, -0.5)];
+//    NSLog(@"%@", NSStringFromCGPoint(e));
+    
     BOOL inside = [self pointInside:[touch locationInView:self] withEvent:nil];
     
     if ( touch == self.trackedTouch && !inside ) {
@@ -314,6 +320,22 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     CGFloat t = ((l2.v.dy * w.dx) - (l2.v.dx * w.dy)) / ((l2.v.dx * l1.v.dy) - (l2.v.dy * l1.v.dx));
     
     return CGPointMake(l1.p0.x + t * l1.v.dx, l1.p0.y + t * l1.v.dy);
+}
+
+- (CGPoint) _intersectionOfLine:(RZNinjaLine) l1 withSegmentFromPoint: (CGPoint) p1 toPoint: (CGPoint) p2{
+    
+    RZNinjaLine lineFromSegment = {.p0 = p1, .v = CGVectorMake(p2.x - p1.x, p2.y - p1.y)};
+    
+    CGPoint intersection = [self _intersectionOfLine:l1 withLine:lineFromSegment];
+    
+    CGFloat segmentVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:p2];
+    CGFloat intersectionVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:intersection];
+    
+    CGFloat proportion = intersectionVectorLength / segmentVectorLength;
+    if (proportion >= 0 && proportion <= 1) {
+        return intersection;
+    }
+        return CGPointMake(HUGE_VALF, HUGE_VALF);
 }
 
 - (CGFloat)_lengthOfSegmentFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
