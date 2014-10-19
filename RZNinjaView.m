@@ -10,7 +10,7 @@
 #import "RZNinjaWindow.h"
 #import "RZNinjaMath.h"
 
-static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
+static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 
 #pragma mark - RZNinjaPane interface
 
@@ -66,7 +66,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     [self insertSubview:self.rootView atIndex:0];
     
     // TODO: what about auto layout?
-    [[super subviews] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+    [self.subviews enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
         if ( obj != self.rootView ) {
             [self.rootView addSubview:obj];
         }
@@ -108,11 +108,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     }
 }
 
-- (NSArray *)subviews
-{
-    return self.rootView.subviews;
-}
-
 - (void)setBackgroundColor:(UIColor *)backgroundColor
 {
     self.rootView.backgroundColor = backgroundColor;
@@ -128,8 +123,14 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     [super setFrame:frame];
     
     if ( self.rootView.layer.mask == nil ) {
-        self.currentMask = [UIBezierPath bezierPathWithRect:self.bounds];
+        // just initialize ivar but don't actually set the mask
+        _currentMask = [UIBezierPath bezierPathWithRect:self.bounds];
     }
+}
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+{
+    return [self.currentMask containsPoint:point];
 }
 
 - (void)setCurrentMask:(UIBezierPath *)currentMask
@@ -185,7 +186,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
-    return [self.ninjaView.currentMask containsPoint:point];
+    return [self.ninjaView pointInside:point withEvent:event];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
@@ -395,21 +396,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     } completion:^(BOOL finished) {
         [self.slicedSection removeFromSuperview];
     }];
-}
-
-- (void)drawRect:(CGRect)rect
-{
-    CGContextRef context = UIGraphicsGetCurrentContext();
-    
-    // TODO: something more interesting here
-    
-    if ( !CGPointEqualToPoint(self.sliceSegment->p0, self.sliceSegment->p1) ) {
-        [[UIColor redColor] setStroke];
-        CGContextBeginPath(context);
-        CGContextMoveToPoint(context, self.sliceSegment->p0.x, self.sliceSegment->p0.y);
-        CGContextAddLineToPoint(context, self.sliceSegment->p1.x, self.sliceSegment->p1.y);
-        CGContextStrokePath(context);
-    }
 }
 
 @end
