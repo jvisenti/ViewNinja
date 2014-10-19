@@ -55,6 +55,7 @@ CGPoint RZLineIntersection(RZLine l1, RZLine l2, CGFloat *t, CGFloat *s)
     CGFloat tRet, sRet;
     CGPoint intersection;
     
+    // NOTE: doesn't handle case when lines are equal (i.e. all points are intersection points)
     if ( fabsf(RZVectorDot(n1, n2)) == 1.0f ) {
         tRet = HUGE_VALF;
         sRet = HUGE_VALF;
@@ -86,9 +87,25 @@ CGPoint RZLineIntersectionWithSegment(RZLine line, RZLineSegment seg, CGFloat *t
     CGFloat tRet, sRet;
     
     if ( CGPointEqualToPoint(seg.p0, seg.p1) ) {
-        tRet = HUGE_VALF;
-        sRet = HUGE_VALF;
-        intersection = RZLineContainsPoint(line, seg.p0) ? seg.p0 : kRZNotAPoint;
+        if ( RZLineContainsPoint(line, seg.p0) ) {
+            if ( line.v.dx != 0.0f ) {
+                tRet = (seg.p0.x - line.p0.x) / line.v.dx;
+            }
+            else if ( line.v.dy != 0.0f ) {
+                tRet = (seg.p0.y - line.p0.y) / line.v.dy;
+            }
+            else {
+                tRet = 0.0f;
+            }
+            
+            sRet = 0.0f;
+            intersection = seg.p0;
+        }
+        else {
+            tRet = HUGE_VALF;
+            sRet = HUGE_VALF;
+            intersection = kRZNotAPoint;
+        }
     }
     else {
         RZLine segLine = RZLineFromLineSegment(seg);

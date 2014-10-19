@@ -10,7 +10,7 @@
 #import "RZNinjaWindow.h"
 #import "RZNinjaMath.h"
 
-static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
+static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
 
 #pragma mark - RZNinjaPane interface
 
@@ -32,7 +32,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 #pragma mark - RZNinjaView private interface
 
-@interface RZNinjaView () <UIGestureRecognizerDelegate>
+@interface RZNinjaView ()
 
 @property (strong, nonatomic) UIView *rootView;
 @property (strong, nonatomic) RZNinjaPane *ninjaPane;
@@ -170,6 +170,11 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     return NO;
 }
 
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+{
+    return [self.currentMask containsPoint:point];
+}
+
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
     return nil;
@@ -295,171 +300,85 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
 
 - (void)_commitSlice
 {
-//
-//    // This is an example of how to use _closeWisePathFromPoint insidePath
-//    // It requires debuggin. OBVIOYSLY!
-//    
-////    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
-////    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
-////
-////    UIBezierPath *yourPath = [[UIBezierPath alloc]init]; // Assume this has some points in it
-////    [yourPath moveToPoint:CGPointMake(minPoint.x, minPoint.y)];
-////    [yourPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
-////    [yourPath addLineToPoint:CGPointMake(maxPoint.x, maxPoint.y)];
-////    [yourPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
-////    [yourPath addLineToPoint:CGPointMake(minPoint.x, minPoint.y)];
-//    
-//    self.ninjaView.rootView.layer.mask = nil;
-//    
-////    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint insidePath:yourPath];
-////    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint insidePath:yourPath];
-//    
-//    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint insidePath:self.currentMask];
-//    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint insidePath:self.currentMask];
-//    
-//    CGRect bounding1 = [path1 bounds];
-//    CGRect bounding2 = [path2 bounds];
-//    
-//    CGFloat area1 = bounding1.size.width * bounding1.size.height;
-//    CGFloat area2 = bounding2.size.width * bounding2.size.height;
-//    
-//    UIBezierPath *slicedPath = (area1 > area2) ? path2 : path1;
-//    UIBezierPath *keepPath = (area1 > area2) ? path1 : path2;
-//    
-//    if (!keepPath) {
-//        return;
-//    }
-//    
-//    CAShapeLayer *maskLayer = [CAShapeLayer layer];
-//    maskLayer.frame = self.ninjaView.bounds;
-//    maskLayer.path = keepPath.CGPath;
-//    
-//    [self _configureSlicedSectionWithPath:slicedPath];
-//    
-//    self.ninjaView.rootView.layer.mask = maskLayer;
-//    
-//    self.currentMask = keepPath;
+    UIBezierPath *newBounds, *slice;
+    [self _sliceBounds:self.currentMask maxPath:&newBounds minPath:&slice];
+    
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    maskLayer.frame = self.ninjaView.bounds;
+    maskLayer.path = newBounds.CGPath;
+    
+    [self _configureSlicedSectionWithPath:slice];
+    
+    self.ninjaView.rootView.layer.mask = maskLayer;
+    
+    self.currentMask = newBounds;
 }
 
--(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint insidePath:(UIBezierPath*) path{
-//
-//    CGPathRef yourCGPath = path.CGPath;
-//    NSMutableArray *bezierPoints = [NSMutableArray array];
-//    CGPathApply(yourCGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
-//    self.ninjaView.rootView.layer.mask = nil;
-//    
-//    NSInteger pathLength = bezierPoints.count;
-//    NSInteger currentPath = -1;
-//    NSInteger lastPointPath = -1;
-//    NSInteger overflowCounter = pathLength;
-//    
-//    for (NSInteger i = 0 ; i < pathLength; i++) {
-//        
-//        NSInteger nextIndex = (i == bezierPoints.count - 1)? 0: i + 1;
-//        CGPoint nextPoint = ((NSValue *)bezierPoints[nextIndex]).CGPointValue;
-//        CGPoint currPoint = ((NSValue *)bezierPoints[i]).CGPointValue;
-//        NSLog(@"%@", NSStringFromCGPoint(nextPoint));
-//        NSLog(@"%@", NSStringFromCGPoint(currPoint));
-//        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:firstPoint]) {
-//            currentPath = nextIndex;
-//        }
-//        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:lastPoint]) {
-//            lastPointPath = i;
-//        }
-//        if (currentPath != -1 && lastPointPath != -1) {
-//            break;
-//        }
-//    }
-//    
-//    if (currentPath == -1) {
-//        [NSException raise:@"Point and path not match" format:@"Start point not found inside path"];
-//    }
-//    
-//    UIBezierPath *maskPath = [UIBezierPath bezierPath];
-//    [maskPath moveToPoint:firstPoint];
-//    
-//    while (true) {
-//        if (currentPath == lastPointPath) {
-//            [maskPath addLineToPoint: lastPoint];
-//            break;
-//        } else {
-//            [maskPath addLineToPoint:((NSValue *)bezierPoints[currentPath]).CGPointValue];
-//        }
-//        if (currentPath == pathLength - 1) {
-//            currentPath = 0;
-//        } else
-//            currentPath++;
-//        overflowCounter --;
-//        if (overflowCounter < -1) {
-//            NSLog(@"OVREFLOWWWING");
-//            break;
-//        }
-//    }
-//    return maskPath;
+- (void)_sliceBounds:(UIBezierPath *)bounds maxPath:(UIBezierPath * __autoreleasing *)maxPath minPath:(UIBezierPath * __autoreleasing *)minPath
+{
+    CFIndex n;
+    CGPoint *boundsPoints = RZPathGetPoints(bounds.CGPath, &n);
     
-    return nil;
-
-}
-
--(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
-//    
-//    if (CGPointEqualToPoint(self.startPoint, self.endPoint)) {
-//        return nil;
-//    }
-//    UIBezierPath *maskPath = [UIBezierPath bezierPath];
-//    
-//    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
-//    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
-//    
-//    [maskPath moveToPoint:firstPoint];
-//    int overflowCounter = 0;
-//    
-//    while (!CGPointEqualToPoint(firstPoint, lastPoint)) {
-//        NSLog(@"Current Point: %@", NSStringFromCGPoint(firstPoint));
-//        if (round(firstPoint.x) == maxPoint.x && (round(firstPoint.y) != maxPoint.y)) {
-//            if (round(lastPoint.x) != round(firstPoint.x)){
-//                [maskPath addLineToPoint: maxPoint];
-//                firstPoint = maxPoint;
-//            }
-//            else {
-//                [maskPath addLineToPoint:lastPoint];
-//                break;
-//            }
-//        } else if (round(firstPoint.y) == maxPoint.y && round(firstPoint.x) != minPoint.x){
-//            if (round(lastPoint.y) != round(firstPoint.y)) {
-//                [maskPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
-//                firstPoint = CGPointMake(minPoint.x, maxPoint.y);
-//            } else {
-//                [maskPath addLineToPoint:lastPoint];
-//                break;
-//            }
-//        } else if (round(firstPoint.x) == minPoint.x && ( round(firstPoint.y) != minPoint.y)){
-//            if (round(lastPoint.x) != round(firstPoint.x)) {
-//                [maskPath addLineToPoint:minPoint];
-//                firstPoint = minPoint;
-//            } else {
-//                [maskPath addLineToPoint:lastPoint];
-//                break;
-//            }
-//        } else {
-//            if (round(lastPoint.y) != round(firstPoint.y)) {
-//                [maskPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
-//                firstPoint = CGPointMake(maxPoint.x, minPoint.y);
-//            } else {
-//                [maskPath addLineToPoint:lastPoint];
-//                break;
-//            }
-//        }
-//        overflowCounter ++;
-//        if (overflowCounter > 5){
-//            NSLog(@"OVERFLOWING!");
-//            break;
-//        }
-//    }
-//    [maskPath closePath];
-//    return maskPath;
+    RZLine sliceLine = RZLineFromLineSegment(*self.sliceSegment);
     
-    return nil;
+    UIBezierPath *path1 = [UIBezierPath bezierPath];
+    UIBezierPath *path2 = [UIBezierPath bezierPath];
+    
+    UIBezierPath *currentPath = path1;
+    UIBezierPath *nextPath = path2;
+    
+    for (CFIndex i = 0; i < n; i++) {
+        CGPoint s0 = boundsPoints[i];
+        CGPoint s1 = boundsPoints[(i+1) % n];
+        
+        RZLineSegment boundsSegment = (RZLineSegment){.p0 = s0, .p1 = s1};
+        
+        if ( currentPath.isEmpty ) {
+            [currentPath moveToPoint:s0];
+        }
+        else {
+            [currentPath addLineToPoint:s0];
+        }
+        
+        CGPoint sliceIntersection = RZLineIntersectionWithSegment(sliceLine, boundsSegment, NULL, NULL);
+        
+        if ( !CGPointEqualToPoint(sliceIntersection, kRZNotAPoint) ) {
+            [currentPath addLineToPoint:sliceIntersection];
+            
+            if ( nextPath.isEmpty ) {
+                [nextPath moveToPoint:sliceIntersection];
+            }
+            else {
+                [nextPath addLineToPoint:sliceIntersection];
+            }
+            
+            UIBezierPath *temp = currentPath;
+            currentPath = nextPath;
+            nextPath = temp;
+        }
+    }
+    
+    free(boundsPoints);
+    
+    [path1 closePath];
+    [path2 closePath];
+    
+    CGRect bounds1 = path1.bounds;
+    CGRect bounds2 = path2.bounds;
+    
+    CGFloat area1 = CGRectGetWidth(bounds1) * CGRectGetHeight(bounds1);
+    CGFloat area2 = CGRectGetWidth(bounds2) * CGRectGetHeight(bounds2);
+    
+    UIBezierPath *max = (area1 > area2) ? path1 : path2;
+    UIBezierPath *min = (area1 > area2) ? path2 : path1;
+    
+    if ( maxPath != NULL ) {
+        *maxPath = max;
+    }
+    
+    if ( minPath != NULL ) {
+        *minPath = min;
+    }
 }
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
