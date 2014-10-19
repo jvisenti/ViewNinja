@@ -156,9 +156,11 @@ void RZLineSegmentSnapToPolygon(RZLineSegment *segment, CGPathRef path, bool sna
     CGPathApply(path, pathPoints, RZCGPathApplierFunction);
     CFIndex numPoints = CFArrayGetCount(pathPoints);
     
-    CGPoint p0Int, p1Int;
+    CGPoint intersections[2] = {kRZNotAPoint, kRZNotAPoint};
+    CGFloat times[2] = {HUGE_VALF, HUGE_VALF};
+    CFIndex n = 0;
     
-    for (CFIndex i = 0; i < numPoints; i++) {
+    for (CFIndex i = 0; i < numPoints && n < 2; i++) {
         CGPoint s0 = RZDataCGPointValue((CFDataRef)CFArrayGetValueAtIndex(pathPoints, i));
         CGPoint s1 = RZDataCGPointValue((CFDataRef)CFArrayGetValueAtIndex(pathPoints, (i+1) % numPoints));
         
@@ -168,17 +170,19 @@ void RZLineSegmentSnapToPolygon(RZLineSegment *segment, CGPathRef path, bool sna
         CGPoint intersection = RZLineIntersectionWithSegment(line, seg, &t, NULL);
         
         if ( t != HUGE_VALF ) {
-            if ( t <= 0.0f ) {
-                p0Int = intersection;
-            }
-            else {
-                p1Int = intersection;
-            }
+            times[n] = t;
+            intersections[n] = intersection;
+            n++;
         }
     }
     
     CFRelease(pathPoints);
     
+    CFIndex minIndex = (times[0] <= times[1]) ? 0 : 1;
+    
+    CGPoint p0Int = intersections[minIndex];
+    CGPoint p1Int = intersections[(minIndex + 1) % 2];
+
     segment->p0 = p0Int;
     
     if ( snapEnd ) {

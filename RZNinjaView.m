@@ -10,7 +10,7 @@
 #import "RZNinjaWindow.h"
 #import "RZNinjaMath.h"
 
-static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
+static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 #pragma mark - RZNinjaPane interface
 
@@ -23,9 +23,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
 
 @property (assign, nonatomic) RZLineSegment *sliceSegment;
 
-@property (weak, nonatomic) CAShapeLayer * maskLayer;
-@property (strong, nonatomic) UIBezierPath *currentMask;
-
 - (void)touchOccurred:(UITouch *)touch;
 
 @end
@@ -36,6 +33,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
 
 @property (strong, nonatomic) UIView *rootView;
 @property (strong, nonatomic) RZNinjaPane *ninjaPane;
+@property (strong, nonatomic) UIBezierPath *currentMask;
 
 @end
 
@@ -125,6 +123,26 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
     return self.rootView.backgroundColor;
 }
 
+- (void)setFrame:(CGRect)frame
+{
+    [super setFrame:frame];
+    
+    if ( self.rootView.layer.mask == nil ) {
+        self.currentMask = [UIBezierPath bezierPathWithRect:self.bounds];
+    }
+}
+
+- (void)setCurrentMask:(UIBezierPath *)currentMask
+{
+    _currentMask = currentMask;
+    
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    maskLayer.frame = self.bounds;
+    maskLayer.path = currentMask.CGPath;
+
+    self.rootView.layer.mask = maskLayer;
+}
+
 #pragma mark - private methods
 
 - (UIView *)rootView
@@ -165,14 +183,9 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
 
 @implementation RZNinjaPane
 
-- (BOOL)isMultipleTouchEnabled
-{
-    return NO;
-}
-
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
-    return [self.currentMask containsPoint:point];
+    return [self.ninjaView.currentMask containsPoint:point];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
@@ -198,13 +211,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
     free(self.sliceSegment);
 }
 
-- (void)setNinjaView:(RZNinjaView *)ninjaView
-{
-    _ninjaView = ninjaView;
-
-    self.currentMask = [UIBezierPath bezierPathWithRect:ninjaView.bounds];
-}
-
 - (void)touchOccurred:(UITouch *)touch
 {
     if ( self.slicedSection != nil ) {
@@ -226,37 +232,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 5.0f;
     }
 }
 
-void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
-    NSMutableArray *bezierPoints = (__bridge NSMutableArray *)info;
-    
-    CGPoint *points = element->points;
-    CGPathElementType type = element->type;
-    
-    switch(type) {
-        case kCGPathElementMoveToPoint: // contains 1 point
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            break;
-            
-        case kCGPathElementAddLineToPoint: // contains 1 point
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            break;
-            
-        case kCGPathElementAddQuadCurveToPoint: // contains 2 points
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
-            break;
-            
-        case kCGPathElementAddCurveToPoint: // contains 3 points
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[2]]];
-            break;
-            
-        case kCGPathElementCloseSubpath: // contains no point
-            break;
-    }
-}
-
 #pragma mark - private methods
 
 - (void)_touchMoved:(UITouch *)touch
@@ -274,7 +249,7 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
             self.sliceSegment->p0 = oldLoc;
             self.sliceSegment->p1 = touchLoc;
 
-            RZLineSegmentSnapToPolygon(self.sliceSegment, self.currentMask.CGPath, false);
+            RZLineSegmentSnapToPolygon(self.sliceSegment, self.ninjaView.currentMask.CGPath, false);
         }
     }
     else if ( touch == self.trackedTouch ) {
@@ -286,7 +261,7 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
 - (void)_touchEnded:(UITouch *)touch
 {
     if ( touch == self.trackedTouch ) {
-        RZLineSegmentSnapToPolygon(self.sliceSegment, self.currentMask.CGPath, true);
+        RZLineSegmentSnapToPolygon(self.sliceSegment, self.ninjaView.currentMask.CGPath, true);
         
         [self _commitSlice];
         
@@ -301,20 +276,14 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
 - (void)_commitSlice
 {
     UIBezierPath *newBounds, *slice;
-    [self _sliceBounds:self.currentMask maxPath:&newBounds minPath:&slice];
-    
-    CAShapeLayer *maskLayer = [CAShapeLayer layer];
-    maskLayer.frame = self.ninjaView.bounds;
-    maskLayer.path = newBounds.CGPath;
+    [self _sliceBoundsPath:self.ninjaView.currentMask maxPath:&newBounds minPath:&slice];
     
     [self _configureSlicedSectionWithPath:slice];
     
-    self.ninjaView.rootView.layer.mask = maskLayer;
-    
-    self.currentMask = newBounds;
+    self.ninjaView.currentMask = newBounds;
 }
 
-- (void)_sliceBounds:(UIBezierPath *)bounds maxPath:(UIBezierPath * __autoreleasing *)maxPath minPath:(UIBezierPath * __autoreleasing *)minPath
+- (void)_sliceBoundsPath:(UIBezierPath *)bounds maxPath:(UIBezierPath * __autoreleasing *)maxPath minPath:(UIBezierPath * __autoreleasing *)minPath
 {
     CFIndex n;
     CGPoint *boundsPoints = RZPathGetPoints(bounds.CGPath, &n);
@@ -405,11 +374,13 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     [self addSubview:slicedSection];
     self.slicedSection = slicedSection;
     
-    CGRect sliceBounds = [path bounds];
+    CGRect currentBounds = self.ninjaView.currentMask.bounds;
+    
+    CGRect sliceBounds = path.bounds;
     CGFloat midX = CGRectGetMidX(sliceBounds);
     CGFloat midY = CGRectGetMidY(sliceBounds);
     
-    CGVector vec = RZVectorNormalize(CGVectorMake(midX - CGRectGetMidX(self.bounds), midY - CGRectGetMidY(self.bounds)));
+    CGVector vec = RZVectorNormalize(CGVectorMake(midX - CGRectGetMidX(currentBounds), midY - CGRectGetMidY(currentBounds)));
     
     CGPoint target = CGPointMake(CGRectGetWidth(sliceBounds) * vec.dx, CGRectGetHeight(sliceBounds) * vec.dy);
     
