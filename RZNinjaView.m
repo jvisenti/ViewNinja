@@ -8,13 +8,9 @@
 
 #import "RZNinjaView.h"
 #import "RZNinjaWindow.h"
+#import "RZNinjaMath.h"
 
-typedef struct _RZNinjaLine {
-    CGPoint p0;
-    CGVector v;
-} RZNinjaLine;
-
-static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
+static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 
 #pragma mark - RZNinjaPane interface
 
@@ -25,10 +21,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 @property (weak, nonatomic) UITouch *trackedTouch;
 
-@property (assign, nonatomic) CGPoint startPoint;
-@property (assign, nonatomic) CGPoint endPoint;
-
-@property (weak, nonatomic) CAShapeLayer * maskLayer;
+@property (assign, nonatomic) RZLineSegment *sliceSegment;
 
 - (void)touchOccurred:(UITouch *)touch;
 
@@ -36,10 +29,11 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 #pragma mark - RZNinjaView private interface
 
-@interface RZNinjaView () <UIGestureRecognizerDelegate>
+@interface RZNinjaView ()
 
 @property (strong, nonatomic) UIView *rootView;
 @property (strong, nonatomic) RZNinjaPane *ninjaPane;
+@property (strong, nonatomic) UIBezierPath *currentMask;
 
 @end
 
@@ -72,7 +66,7 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     [self insertSubview:self.rootView atIndex:0];
     
     // TODO: what about auto layout?
-    [[super subviews] enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
+    [self.subviews enumerateObjectsUsingBlock:^(id obj, NSUInteger idx, BOOL *stop) {
         if ( obj != self.rootView ) {
             [self.rootView addSubview:obj];
         }
@@ -114,11 +108,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     }
 }
 
-- (NSArray *)subviews
-{
-    return self.rootView.subviews;
-}
-
 - (void)setBackgroundColor:(UIColor *)backgroundColor
 {
     self.rootView.backgroundColor = backgroundColor;
@@ -127,6 +116,32 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 - (UIColor *)backgroundColor
 {
     return self.rootView.backgroundColor;
+}
+
+- (void)setFrame:(CGRect)frame
+{
+    [super setFrame:frame];
+    
+    if ( self.rootView.layer.mask == nil ) {
+        // just initialize ivar but don't actually set the mask
+        _currentMask = [UIBezierPath bezierPathWithRect:self.bounds];
+    }
+}
+
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
+{
+    return [self.currentMask containsPoint:point];
+}
+
+- (void)setCurrentMask:(UIBezierPath *)currentMask
+{
+    _currentMask = currentMask;
+    
+    CAShapeLayer *maskLayer = [CAShapeLayer layer];
+    maskLayer.frame = self.bounds;
+    maskLayer.path = currentMask.CGPath;
+
+    self.rootView.layer.mask = maskLayer;
 }
 
 #pragma mark - private methods
@@ -169,20 +184,14 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
 
 @implementation RZNinjaPane
 
-- (BOOL)isMultipleTouchEnabled
+- (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event
 {
-    return NO;
+    return [self.ninjaView pointInside:point withEvent:event];
 }
 
 - (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
 {
-    UIView *hitView = nil;
-    
-    if ( [self.slicedSection pointInside:point withEvent:event] ) {
-        hitView = self.slicedSection;
-    }
-    
-    return hitView;
+    return nil;
 }
 
 - (instancetype)initWithFrame:(CGRect)frame
@@ -190,8 +199,17 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     if ( (self = [super initWithFrame:frame]) ) {
         self.backgroundColor = [UIColor clearColor];
         self.opaque = NO;
+        
+        self.sliceSegment = malloc(sizeof(RZLineSegment));
+        self.sliceSegment->p0 = kRZNotAPoint;
+        self.sliceSegment->p1 = kRZNotAPoint;
     }
     return self;
+}
+
+- (void)dealloc
+{
+    free(self.sliceSegment);
 }
 
 - (void)touchOccurred:(UITouch *)touch
@@ -215,37 +233,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 15.0f;
     }
 }
 
-void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
-    NSMutableArray *bezierPoints = (__bridge NSMutableArray *)info;
-    
-    CGPoint *points = element->points;
-    CGPathElementType type = element->type;
-    
-    switch(type) {
-        case kCGPathElementMoveToPoint: // contains 1 point
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            break;
-            
-        case kCGPathElementAddLineToPoint: // contains 1 point
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            break;
-            
-        case kCGPathElementAddQuadCurveToPoint: // contains 2 points
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
-            break;
-            
-        case kCGPathElementAddCurveToPoint: // contains 3 points
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[0]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[1]]];
-            [bezierPoints addObject:[NSValue valueWithCGPoint:points[2]]];
-            break;
-            
-        case kCGPathElementCloseSubpath: // contains no point
-            break;
-    }
-}
-
 #pragma mark - private methods
 
 - (void)_touchMoved:(UITouch *)touch
@@ -260,12 +247,14 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
         if ( speed > kRZNinjaViewSliceThreshold ) {
             self.trackedTouch = touch;
             
-            self.startPoint = [self _boundsIntersectionOfLineFromPoint:oldLoc toPoint:touchLoc];
-            self.endPoint = touchLoc;
+            self.sliceSegment->p0 = oldLoc;
+            self.sliceSegment->p1 = touchLoc;
+
+            RZLineSegmentSnapToPolygon(self.sliceSegment, self.ninjaView.currentMask.CGPath, false);
         }
     }
     else if ( touch == self.trackedTouch ) {
-        [self _updateEndpointWithPoint:touchLoc];
+        self.sliceSegment->p1 = RZLineProjectPoint(RZLineFromLineSegment(*self.sliceSegment), touchLoc);
         [self setNeedsDisplay];
     }
 }
@@ -273,306 +262,93 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
 - (void)_touchEnded:(UITouch *)touch
 {
     if ( touch == self.trackedTouch ) {
-        self.endPoint = [self _boundsIntersectionOfLineFromPoint:self.endPoint toPoint:self.startPoint];
+        RZLineSegmentSnapToPolygon(self.sliceSegment, self.ninjaView.currentMask.CGPath, true);
+        
         [self _commitSlice];
         
         self.trackedTouch = nil;
-        self.startPoint = CGPointZero;
-        self.endPoint = CGPointZero;
+        self.sliceSegment->p0 = kRZNotAPoint;
+        self.sliceSegment->p1 = kRZNotAPoint;
         
         [self setNeedsDisplay];
     }
 }
 
-// TODO: move to math header file
-
-- (void)_updateEndpointWithPoint:(CGPoint)point
-{
-    if ( CGPointEqualToPoint(point, self.startPoint) ) {
-        self.endPoint = self.startPoint;
-    }
-    else {
-        CGVector curVec = CGVectorMake(self.endPoint.x - self.startPoint.x, self.endPoint.y - self.startPoint.y);
-        CGVector newVec = CGVectorMake(point.x - self.startPoint.x, point.y - self.startPoint.y);
-        
-        CGFloat scalar = (newVec.dx * curVec.dx + newVec.dy * curVec.dy) / (curVec.dx * curVec.dx + curVec.dy * curVec.dy);
-        
-        self.endPoint = CGPointMake(self.startPoint.x + scalar * curVec.dx, self.startPoint.y + scalar * curVec.dy);
-    }
-}
-
-- (CGPoint)_boundsIntersectionOfLineFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
-{
-    CGVector vec = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
-    
-    RZNinjaLine sliceLine = {.p0 = p1, .v = vec};
-    
-    CGFloat maxX = CGRectGetMaxX(self.bounds);
-    CGFloat maxY = CGRectGetMaxY(self.bounds);
-    
-    //bounds lines
-    RZNinjaLine leftEdge = {.p0 = CGPointZero, .v = {.dx = 0.0f, .dy = 1.0f}};
-    RZNinjaLine rightEdge = {.p0 = {.x = maxX, .y = 0.0f}, .v = {.dx = 0.0f, .dy = 1.0f}};
-    RZNinjaLine topEdge = {.p0 = CGPointZero, .v = {.dx = 1.0f, .dy = 0.0f}};
-    RZNinjaLine bottomEdge = {.p0 = {.x = 0.0f, .y = maxY}, .v = {.dx = 1.0f, .dy = 0.0f}};
-    
-    
-    CGPoint leftInt = [self _intersectionOfLine:sliceLine withLine:leftEdge];
-    CGPoint rightInt = [self _intersectionOfLine:sliceLine withLine:rightEdge];
-    CGPoint topInt = [self _intersectionOfLine:sliceLine withLine:topEdge];
-    CGPoint bottomInt = [self _intersectionOfLine:sliceLine withLine:bottomEdge];
-    
-    CGFloat minLen = HUGE_VALF;
-    
-    CGFloat leftDist = [self _lengthOfSegmentFromPoint:p1 toPoint:leftInt];
-    CGFloat rightDist = [self _lengthOfSegmentFromPoint:p1 toPoint:rightInt];
-    CGFloat topDist = [self _lengthOfSegmentFromPoint:p1 toPoint:topInt];
-    CGFloat bottomDist = [self _lengthOfSegmentFromPoint:p1 toPoint:bottomInt];
-    
-    minLen = MIN(minLen, leftDist);
-    minLen = MIN(minLen, rightDist);
-    minLen = MIN(minLen, topDist);
-    minLen = MIN(minLen, bottomDist);
-    
-    if ( minLen == leftDist ) {
-        return leftInt;
-    }
-    else if ( minLen == rightDist ) {
-        return rightInt;
-    }
-    else if ( minLen == topDist ) {
-        return topInt;
-    }
-    else {
-        return bottomInt;
-    }
-}
-
-- (CGPoint)_intersectionOfLine:(RZNinjaLine)l1 withLine:(RZNinjaLine)l2
-{
-    CGVector norm1 = [self _vectorNormalize:l1.v];
-    CGVector norm2 = [self _vectorNormalize:l2.v];
-    
-    if ( fabsf(norm1.dx * norm2.dx + norm1.dy * norm2.dy) == 1.0f ) {
-        // parallel lines won't ever intersect
-        return CGPointMake(HUGE_VALF, HUGE_VALF);
-    }
-    
-    CGVector w = CGVectorMake(l1.p0.x - l2.p0.x, l1.p0.y - l2.p0.y);
-    CGFloat t = ((l2.v.dy * w.dx) - (l2.v.dx * w.dy)) / ((l2.v.dx * l1.v.dy) - (l2.v.dy * l1.v.dx));
-    
-    return CGPointMake(l1.p0.x + t * l1.v.dx, l1.p0.y + t * l1.v.dy);
-}
-
-- (CGPoint) _intersectionOfLine:(RZNinjaLine) l1 withSegmentFromPoint: (CGPoint) p1 toPoint: (CGPoint) p2{
-    
-    RZNinjaLine lineFromSegment = {.p0 = p1, .v = CGVectorMake(p2.x - p1.x, p2.y - p1.y)};
-    
-    CGPoint intersection = [self _intersectionOfLine:l1 withLine:lineFromSegment];
-    
-    CGFloat segmentVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:p2];
-    CGFloat intersectionVectorLength = [self _lengthOfSegmentFromPoint:p1 toPoint:intersection];
-    
-    CGFloat proportion = intersectionVectorLength / segmentVectorLength;
-    if (proportion >= 0 && proportion <= 1) {
-        return intersection;
-    }
-        return CGPointMake(HUGE_VALF, HUGE_VALF);
-}
-
-- (CGFloat)_lengthOfSegmentFromPoint:(CGPoint)p1 toPoint:(CGPoint)p2
-{
-    CGVector v = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
-    return [self _magnitude:v];
-}
-
-- (CGFloat)_magnitude:(CGVector)v
-{
-    return sqrtf(v.dx * v.dx + v.dy * v.dy);
-}
-
-- (CGVector)_vectorNormalize:(CGVector)v
-{
-    if ( v.dx == 0.0f && v.dy == 0.0f ) {
-        return v;
-    }
-    
-    CGFloat magnitude = [self _magnitude:v];
-    return CGVectorMake(v.dx / magnitude, v.dy / magnitude);
-}
-
--(BOOL) _pointOnSegmentFromPoint:(CGPoint) p1 toPoint:(CGPoint)p2 withPoint:(CGPoint) testPoint{
-    CGVector v = CGVectorMake(p2.x - p1.x, p2.y - p1.y);
-    CGVector vTest = CGVectorMake(testPoint.x - p1.x, testPoint.y - p1.y);
-    CGVector normalV = [self _vectorNormalize:v];
-    CGVector normalVtest = [self _vectorNormalize:vTest];
-    
-    CGFloat dotProduct = normalV.dx * normalVtest.dx + normalV.dy * normalVtest.dy;
-    return dotProduct == 1;
-}
-
-// --- end TODO
-
 - (void)_commitSlice
 {
-
-    // This is an example of how to use _closeWisePathFromPoint insidePath
-    // It requires debuggin. OBVIOYSLY!
+    UIBezierPath *newBounds, *slice;
+    [self _sliceBoundsPath:self.ninjaView.currentMask maxPath:&newBounds minPath:&slice];
     
-//    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
-//    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
-//
-//    UIBezierPath *yourPath = [[UIBezierPath alloc]init]; // Assume this has some points in it
-//    [yourPath moveToPoint:CGPointMake(minPoint.x, minPoint.y)];
-//    [yourPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
-//    [yourPath addLineToPoint:CGPointMake(maxPoint.x, maxPoint.y)];
-//    [yourPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
-//    [yourPath addLineToPoint:CGPointMake(minPoint.x, minPoint.y)];
+    [self _configureSlicedSectionWithPath:slice];
     
-    self.ninjaView.rootView.layer.mask = nil;
-    
-//    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint insidePath:yourPath];
-//    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint insidePath:yourPath];
-    
-    UIBezierPath *path1 = [self _clockWisePathFromPoint:self.startPoint toPoint:self.endPoint];
-    UIBezierPath *path2 = [self _clockWisePathFromPoint:self.endPoint toPoint:self.startPoint];
-    
-    CGRect bounding1 = [path1 bounds];
-    CGRect bounding2 = [path2 bounds];
-    
-    CGFloat area1 = bounding1.size.width * bounding1.size.height;
-    CGFloat area2 = bounding2.size.width * bounding2.size.height;
-    
-    UIBezierPath *slicedPath = (area1 > area2) ? path2 : path1;
-    UIBezierPath *keepPath = (area1 > area2) ? path1 : path2;
-    
-    if (!keepPath) {
-        return;
-    }
-    
-    CAShapeLayer *maskLayer = [CAShapeLayer layer];
-    maskLayer.frame = self.ninjaView.bounds;
-    maskLayer.path = keepPath.CGPath;
-    
-    [self _configureSlicedSectionWithPath:slicedPath];
-    
-    self.ninjaView.rootView.layer.mask = maskLayer;
+    self.ninjaView.currentMask = newBounds;
 }
--(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint insidePath:(UIBezierPath*) path{
 
-    CGPathRef yourCGPath = path.CGPath;
-    NSMutableArray *bezierPoints = [NSMutableArray array];
-    CGPathApply(yourCGPath, (__bridge void *)(bezierPoints), MyCGPathApplierFunc);
-    self.ninjaView.rootView.layer.mask = nil;
+- (void)_sliceBoundsPath:(UIBezierPath *)bounds maxPath:(UIBezierPath * __autoreleasing *)maxPath minPath:(UIBezierPath * __autoreleasing *)minPath
+{
+    CFIndex n;
+    CGPoint *boundsPoints = RZPathGetPoints(bounds.CGPath, &n);
     
-    NSInteger pathLength = bezierPoints.count;
-    NSInteger currentPath = -1;
-    NSInteger lastPointPath = -1;
-    NSInteger overflowCounter = pathLength;
+    RZLine sliceLine = RZLineFromLineSegment(*self.sliceSegment);
     
-    for (NSInteger i = 0 ; i < pathLength; i++) {
+    UIBezierPath *path1 = [UIBezierPath bezierPath];
+    UIBezierPath *path2 = [UIBezierPath bezierPath];
+    
+    UIBezierPath *currentPath = path1;
+    UIBezierPath *nextPath = path2;
+    
+    for (CFIndex i = 0; i < n; i++) {
+        CGPoint s0 = boundsPoints[i];
+        CGPoint s1 = boundsPoints[(i+1) % n];
         
-        NSInteger nextIndex = (i == bezierPoints.count - 1)? 0: i + 1;
-        CGPoint nextPoint = ((NSValue *)bezierPoints[nextIndex]).CGPointValue;
-        CGPoint currPoint = ((NSValue *)bezierPoints[i]).CGPointValue;
-        NSLog(@"%@", NSStringFromCGPoint(nextPoint));
-        NSLog(@"%@", NSStringFromCGPoint(currPoint));
-        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:firstPoint]) {
-            currentPath = nextIndex;
+        RZLineSegment boundsSegment = (RZLineSegment){.p0 = s0, .p1 = s1};
+        
+        if ( currentPath.isEmpty ) {
+            [currentPath moveToPoint:s0];
         }
-        if ([self _pointOnSegmentFromPoint:currPoint toPoint:nextPoint withPoint:lastPoint]) {
-            lastPointPath = i;
+        else {
+            [currentPath addLineToPoint:s0];
         }
-        if (currentPath != -1 && lastPointPath != -1) {
-            break;
-        }
-    }
-    
-    if (currentPath == -1) {
-        [NSException raise:@"Point and path not match" format:@"Start point not found inside path"];
-    }
-    
-    UIBezierPath *maskPath = [UIBezierPath bezierPath];
-    [maskPath moveToPoint:firstPoint];
-    
-    while (true) {
-        if (currentPath == lastPointPath) {
-            [maskPath addLineToPoint: lastPoint];
-            break;
-        } else {
-            [maskPath addLineToPoint:((NSValue *)bezierPoints[currentPath]).CGPointValue];
-        }
-        if (currentPath == pathLength - 1) {
-            currentPath = 0;
-        } else
-            currentPath++;
-        overflowCounter --;
-        if (overflowCounter < -1) {
-            NSLog(@"OVREFLOWWWING");
-            break;
-        }
-    }
-    return maskPath;
-
-}
-
--(UIBezierPath *) _clockWisePathFromPoint:(CGPoint) firstPoint toPoint:(CGPoint) lastPoint {
-    
-    if (CGPointEqualToPoint(self.startPoint, self.endPoint)) {
-        return nil;
-    }
-    UIBezierPath *maskPath = [UIBezierPath bezierPath];
-    
-    CGPoint minPoint = CGPointMake(CGRectGetMinX(self.bounds), CGRectGetMinY(self.bounds));
-    CGPoint maxPoint = CGPointMake(CGRectGetMaxX(self.bounds), CGRectGetMaxY(self.bounds));
-    
-    [maskPath moveToPoint:firstPoint];
-    int overflowCounter = 0;
-    
-    while (!CGPointEqualToPoint(firstPoint, lastPoint)) {
-        NSLog(@"Current Point: %@", NSStringFromCGPoint(firstPoint));
-        if (round(firstPoint.x) == maxPoint.x && (round(firstPoint.y) != maxPoint.y)) {
-            if (round(lastPoint.x) != round(firstPoint.x)){
-                [maskPath addLineToPoint: maxPoint];
-                firstPoint = maxPoint;
+        
+        CGPoint sliceIntersection = RZLineIntersectionWithSegment(sliceLine, boundsSegment, NULL, NULL);
+        
+        if ( !CGPointEqualToPoint(sliceIntersection, kRZNotAPoint) ) {
+            [currentPath addLineToPoint:sliceIntersection];
+            
+            if ( nextPath.isEmpty ) {
+                [nextPath moveToPoint:sliceIntersection];
             }
             else {
-                [maskPath addLineToPoint:lastPoint];
-                break;
+                [nextPath addLineToPoint:sliceIntersection];
             }
-        } else if (round(firstPoint.y) == maxPoint.y && round(firstPoint.x) != minPoint.x){
-            if (round(lastPoint.y) != round(firstPoint.y)) {
-                [maskPath addLineToPoint:CGPointMake(minPoint.x, maxPoint.y)];
-                firstPoint = CGPointMake(minPoint.x, maxPoint.y);
-            } else {
-                [maskPath addLineToPoint:lastPoint];
-                break;
-            }
-        } else if (round(firstPoint.x) == minPoint.x && ( round(firstPoint.y) != minPoint.y)){
-            if (round(lastPoint.x) != round(firstPoint.x)) {
-                [maskPath addLineToPoint:minPoint];
-                firstPoint = minPoint;
-            } else {
-                [maskPath addLineToPoint:lastPoint];
-                break;
-            }
-        } else {
-            if (round(lastPoint.y) != round(firstPoint.y)) {
-                [maskPath addLineToPoint:CGPointMake(maxPoint.x, minPoint.y)];
-                firstPoint = CGPointMake(maxPoint.x, minPoint.y);
-            } else {
-                [maskPath addLineToPoint:lastPoint];
-                break;
-            }
-        }
-        overflowCounter ++;
-        if (overflowCounter > 5){
-            NSLog(@"OVERFLOWING!");
-            break;
+            
+            UIBezierPath *temp = currentPath;
+            currentPath = nextPath;
+            nextPath = temp;
         }
     }
-    [maskPath closePath];
-    return maskPath;
+    
+    free(boundsPoints);
+    
+    [path1 closePath];
+    [path2 closePath];
+    
+    CGRect bounds1 = path1.bounds;
+    CGRect bounds2 = path2.bounds;
+    
+    CGFloat area1 = CGRectGetWidth(bounds1) * CGRectGetHeight(bounds1);
+    CGFloat area2 = CGRectGetWidth(bounds2) * CGRectGetHeight(bounds2);
+    
+    UIBezierPath *max = (area1 > area2) ? path1 : path2;
+    UIBezierPath *min = (area1 > area2) ? path2 : path1;
+    
+    if ( maxPath != NULL ) {
+        *maxPath = max;
+    }
+    
+    if ( minPath != NULL ) {
+        *minPath = min;
+    }
 }
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
@@ -589,7 +365,6 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     UIGraphicsEndImageContext();
 
     UIImageView *slicedSection = [[UIImageView alloc] initWithImage:snapshot];
-    slicedSection.userInteractionEnabled = YES;
     
     CAShapeLayer *maskLayer = [CAShapeLayer layer];
     maskLayer.frame = slicedSection.bounds;
@@ -600,11 +375,13 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     [self addSubview:slicedSection];
     self.slicedSection = slicedSection;
     
-    CGRect sliceBounds = [path bounds];
+    CGRect currentBounds = self.ninjaView.currentMask.bounds;
+    
+    CGRect sliceBounds = path.bounds;
     CGFloat midX = CGRectGetMidX(sliceBounds);
     CGFloat midY = CGRectGetMidY(sliceBounds);
     
-    CGVector vec = [self _vectorNormalize:CGVectorMake(midX - CGRectGetMidX(self.bounds), midY - CGRectGetMidY(self.bounds))];
+    CGVector vec = RZVectorNormalize(CGVectorMake(midX - CGRectGetMidX(currentBounds), midY - CGRectGetMidY(currentBounds)));
     
     CGPoint target = CGPointMake(CGRectGetWidth(sliceBounds) * vec.dx, CGRectGetHeight(sliceBounds) * vec.dy);
     
@@ -619,21 +396,6 @@ void MyCGPathApplierFunc (void *info, const CGPathElement *element) {
     } completion:^(BOOL finished) {
         [self.slicedSection removeFromSuperview];
     }];
-}
-
-- (void)drawRect:(CGRect)rect
-{
-    CGContextRef context = UIGraphicsGetCurrentContext();
-    
-    // TODO: something more interesting here
-    
-    if ( !CGPointEqualToPoint(self.startPoint, self.endPoint) ) {
-        [[UIColor redColor] setStroke];
-        CGContextBeginPath(context);
-        CGContextMoveToPoint(context, self.startPoint.x, self.startPoint.y);
-        CGContextAddLineToPoint(context, self.endPoint.x, self.endPoint.y);
-        CGContextStrokePath(context);
-    }
 }
 
 @end
