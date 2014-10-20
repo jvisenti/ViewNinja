@@ -17,7 +17,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 @interface RZNinjaPane : UIView
 
 @property (weak, nonatomic) RZNinjaView *ninjaView;
-@property (weak, nonatomic) UIView *slicedSection;
 
 @property (weak, nonatomic) UITouch *trackedTouch;
 
@@ -214,10 +213,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 
 - (void)touchOccurred:(UITouch *)touch
 {
-    if ( self.slicedSection != nil ) {
-        return;
-    }
-    
     BOOL inside = [self pointInside:[touch locationInView:self] withEvent:nil];
     
     if ( touch == self.trackedTouch && !inside ) {
@@ -353,8 +348,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 
 - (void)_configureSlicedSectionWithPath:(UIBezierPath *)path
 {
-    [self.slicedSection removeFromSuperview];
-    
     UIView *view = self.ninjaView.rootView;
     UIGraphicsBeginImageContextWithOptions(view.bounds.size, view.isOpaque, 0.0f);
     
@@ -373,7 +366,6 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
     slicedSection.layer.mask = maskLayer;
     
     [self addSubview:slicedSection];
-    self.slicedSection = slicedSection;
     
     CGRect currentBounds = self.ninjaView.currentMask.bounds;
     
@@ -386,15 +378,15 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
     CGPoint target = CGPointMake(CGRectGetWidth(sliceBounds) * vec.dx, CGRectGetHeight(sliceBounds) * vec.dy);
     
     [UIView animateWithDuration:1.5f animations:^{
-        CGRect slicedFrame = self.slicedSection.frame;
+        CGRect slicedFrame = slicedSection.frame;
         slicedFrame.origin = target;
-        self.slicedSection.frame = slicedFrame;
+        slicedSection.frame = slicedFrame;
     }];
     
     [UIView animateWithDuration:1.0f delay:0.5f options:UIViewAnimationOptionCurveEaseIn animations:^{
-        self.slicedSection.alpha = 0.0f;
+        slicedSection.alpha = 0.0f;
     } completion:^(BOOL finished) {
-        [self.slicedSection removeFromSuperview];
+        [slicedSection removeFromSuperview];
     }];
 }
 
