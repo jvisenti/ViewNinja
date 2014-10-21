@@ -83,6 +83,12 @@ static CGFloat const kRZNinjaViewSliceThreshold = 20.0f;
 
 #pragma mark - public methods
 
+- (void)reset
+{
+    self.rootView.layer.mask = nil;
+    _currentMask = [UIBezierPath bezierPathWithRect:self.bounds];
+}
+
 - (void)addSubview:(UIView *)view
 {
     if ( self.rootView.superview == self ) {

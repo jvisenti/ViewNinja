@@ -7,8 +7,11 @@
 //
 
 #import "ViewController.h"
+#import "RZNinjaView.h"
 
 @interface ViewController ()
+
+@property (weak, nonatomic) IBOutlet RZNinjaView *ninjaView;
 
 @end
 
@@ -22,6 +25,11 @@
 - (void)didReceiveMemoryWarning {
     [super didReceiveMemoryWarning];
     // Dispose of any resources that can be recreated.
+}
+
+- (IBAction)resetPressed
+{
+    [self.ninjaView reset];
 }
 
 @end
